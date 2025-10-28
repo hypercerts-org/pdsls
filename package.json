@@ -12,6 +12,7 @@
     "@iconify-json/lucide": "^1.2.70",
     "@iconify/tailwind4": "^1.0.6",
     "@tailwindcss/vite": "^4.1.16",
+    "dotenv": "^17.2.3",
     "prettier": "^3.6.2",
     "prettier-plugin-organize-imports": "^4.3.0",
     "prettier-plugin-tailwindcss": "^0.7.1",
