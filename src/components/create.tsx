@@ -245,7 +245,9 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
 
       if ((document.getElementById("exif-rm") as HTMLInputElement).checked) {
         const exifRemoved = remove(new Uint8Array(await blob.arrayBuffer()));
-        if (exifRemoved !== null) blob = new Blob([exifRemoved], { type: blob.type });
+        if (exifRemoved !== null) {
+          blob = new Blob([exifRemoved.buffer as ArrayBuffer], { type: blob.type });
+        }
       }
 
       const rpc = new Client({ handler: agent()! });
