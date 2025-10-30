@@ -1,12 +1,15 @@
 import { Client } from "@atcute/client";
-import { Did } from "@atcute/lexicons";
+import { Did, Handle } from "@atcute/lexicons";
 import { getSession, OAuthUserAgent } from "@atcute/oauth-browser-client";
+// @ts-expect-error - importing from dist/dpop.js which exists but is not in package exports
+import { createDPoPSignage } from "@atcute/oauth-browser-client/dist/dpop.js";
 import { remove } from "@mary/exif-rm";
 import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Editor, editorView } from "../components/editor.jsx";
 import { agent } from "../components/login.jsx";
 import { setNotif } from "../layout.jsx";
+import { getPDS, resolveHandle } from "../utils/api.js";
 import { sessions } from "./account.jsx";
 import { Button } from "./button.jsx";
 import { Modal } from "./modal.jsx";
@@ -23,6 +26,7 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
   const [openUpload, setOpenUpload] = createSignal(false);
   const [validate, setValidate] = createSignal<boolean | undefined>(undefined);
   const [nonBlocking, setNonBlocking] = createSignal(false);
+  const [useCustomRepo, setUseCustomRepo] = createSignal(false);
   let blobInput!: HTMLInputElement;
   let formRef!: HTMLFormElement;
 
@@ -66,12 +70,164 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
     }
   });
 
+  const resolveRepoDid = async (repo: string): Promise<Did | null> => {
+    try {
+      return repo.startsWith("did:") ? (repo as Did) : await resolveHandle(repo as Handle);
+    } catch (e: any) {
+      setNotice(`Failed to resolve repo: ${e.message}`);
+      return null;
+    }
+  };
+
+  const safelyGetPDS = async (did: Did): Promise<string | null> => {
+    try {
+      return await getPDS(did);
+    } catch (e: any) {
+      setNotice(`Failed to resolve PDS for repo: ${e.message}`);
+      return null;
+    }
+  };
+
+  const createCrossPdsHandler = (targetPDS: string) => {
+    const originalAgent = agent()!;
+    // Cache the session to avoid triggering refreshes
+    let cachedSession: any = null;
+
+    return {
+      async handle(pathname: string, init: RequestInit): Promise<Response> {
+        console.log("🚀 Cross-PDS handler called for:", pathname);
+        if (init.headers instanceof Headers) {
+          const headerObj: Record<string, string> = {};
+          init.headers.forEach((v, k) => (headerObj[k] = v));
+          console.log("📥 Incoming init.headers:", headerObj);
+        } else {
+          console.log("📥 Incoming init.headers:", init.headers);
+        }
+        // Get the session to access tokens (cache it to avoid multiple refresh attempts)
+        if (!cachedSession) {
+          cachedSession = await (originalAgent as any).getSession();
+        }
+        const session = cachedSession;
+        if (!session) {
+          throw new Error("No session available in OAuth agent");
+        }
+
+        // Generate DPoP proof for the target URL
+        const fullUrl = `${targetPDS}${pathname}`;
+        const method = (init.method || "GET").toUpperCase();
+
+        // Get the access token string from the session's token object
+        const tokenObj = session.token;
+        console.log("🔍 Token object:", tokenObj);
+        const accessToken = tokenObj.access;
+        if (!accessToken) {
+          throw new Error("No access token available");
+        }
+        console.log("🎫 Access token type:", typeof accessToken, "length:", accessToken.length);
+
+        // Compute the ath (hash of access token) for DPoP proof
+        const encoder = new TextEncoder();
+        const tokenData = encoder.encode(accessToken);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", tokenData);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const ath = btoa(String.fromCharCode(...hashArray))
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=/g, "");
+
+        // Create DPoP proof using the library's signage function
+        const signDPoP = createDPoPSignage(session.dpopKey);
+        const dpopProof = await signDPoP(method, fullUrl, session.info.dpopNonce, ath);
+
+        // Make the request with proper auth headers
+        // Convert Headers object to plain object if necessary
+        const headers: Record<string, string> = {};
+        if (init.headers) {
+          if (init.headers instanceof Headers) {
+            init.headers.forEach((value, key) => {
+              headers[key] = value;
+            });
+          } else {
+            Object.assign(headers, init.headers);
+          }
+        }
+        headers.Authorization = `DPoP ${accessToken}`;
+        headers.DPoP = dpopProof;
+        headers["X-Custom-Test"] = "CrossPDSHandler-" + Date.now();
+        console.log("🔐 Sending request to:", fullUrl);
+        console.log(
+          "🔑 Authorization header (first 60 chars):",
+          headers.Authorization.substring(0, 60),
+        );
+        console.log("🆔 Test header:", headers["X-Custom-Test"]);
+        console.log("📦 headers type:", headers.constructor.name, "keys:", Object.keys(headers));
+
+        // Intercept at the native fetch level to see ALL requests
+        const originalFetch = globalThis.fetch;
+        let fetchCallCount = 0;
+        globalThis.fetch = ((input: any, init: any) => {
+          const url = typeof input === "string" ? input : input.url;
+          if (url && url.includes("test.certified.app")) {
+            fetchCallCount++;
+            const authHeader =
+              init?.headers?.Authorization ||
+              init?.headers?.authorization ||
+              init?.headers?.get?.("Authorization") ||
+              init?.headers?.get?.("authorization") ||
+              "NO_AUTH";
+            console.log(
+              `🌐 Native fetch call #${fetchCallCount} to test.certified.app, Auth:`,
+              authHeader.substring(0, 60),
+            );
+          }
+          return originalFetch(input, init);
+        }) as typeof fetch;
+
+        // Create a completely fresh request without any init overrides
+        const response = await fetch(fullUrl, {
+          method,
+          headers,
+          body: init.body,
+          credentials: "omit", // Don't send cookies or auth credentials
+          cache: "no-cache",
+        });
+
+        // Restore and report
+        globalThis.fetch = originalFetch;
+        console.log(`✨ Total fetch calls made: ${fetchCallCount}`);
+
+        console.log("✅ Got response:", response.status, response.statusText);
+        return response;
+      },
+    };
+  };
+
+  const createRpcClient = async (repoDid: Did, targetPDS: string): Promise<Client | null> => {
+    try {
+      const session = await getSession(repoDid);
+      return new Client({ handler: new OAuthUserAgent(session) });
+    } catch {
+      if (!agent()) {
+        setNotice("No authenticated session available");
+        return null;
+      }
+      return new Client({ handler: createCrossPdsHandler(targetPDS) as any });
+    }
+  };
+
   const createRecord = async (formData: FormData) => {
     const repo = formData.get("repo")?.toString();
     if (!repo) return;
-    const rpc = new Client({ handler: new OAuthUserAgent(await getSession(repo as Did)) });
-    const collection = formData.get("collection");
-    const rkey = formData.get("rkey");
+
+    const repoDid = await resolveRepoDid(repo);
+    if (!repoDid) return;
+
+    const targetPDS = await safelyGetPDS(repoDid);
+    if (!targetPDS) return;
+
+    const rpc = await createRpcClient(repoDid, targetPDS);
+    if (!rpc) return;
+
     let record: any;
     try {
       record = JSON.parse(editorView.state.doc.toString());
@@ -79,19 +235,25 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
       setNotice(e.message);
       return;
     }
+
+    const collection = formData.get("collection");
+    const rkey = formData.get("rkey");
+
     const res = await rpc.post("com.atproto.repo.createRecord", {
       input: {
-        repo: repo as Did,
+        repo: repoDid,
         collection: collection ? collection.toString() : record.$type,
         rkey: rkey?.toString().length ? rkey?.toString() : undefined,
         record: record,
         validate: validate(),
       },
     });
+
     if (!res.ok) {
       setNotice(`${res.data.error}: ${res.data.message}`);
       return;
     }
+
     setOpenDialog(false);
     setNotif({ show: true, icon: "lucide--file-check", text: "Record created" });
     navigate(`/${res.data.uri}`);
@@ -161,9 +323,10 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
       const closestDraggable = e.target.closest("[data-draggable]") as HTMLElement;
       if (closestDraggable && closestDraggable !== box) return;
 
+      // Check if the target or any of its parents (up to the box) is an interactive element
       if (
         ["INPUT", "SELECT", "BUTTON", "LABEL"].includes(e.target.tagName) ||
-        e.target.closest("#editor, #close")
+        e.target.closest("button, input, select, label, #editor, #close")
       )
         return;
 
@@ -370,19 +533,51 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
             <Show when={props.create}>
               <div class="flex flex-wrap items-center gap-1 text-sm">
                 <span>at://</span>
-                <select
-                  class="dark:bg-dark-100 dark:shadow-dark-700 max-w-40 truncate rounded-lg border-[0.5px] border-neutral-300 bg-white px-1 py-1 shadow-xs select-none focus:outline-[1px] focus:outline-neutral-600 dark:border-neutral-600 dark:focus:outline-neutral-400"
-                  name="repo"
-                  id="repo"
+                <Show
+                  when={!useCustomRepo()}
+                  fallback={
+                    <>
+                      <TextInput
+                        name="repo"
+                        id="repo"
+                        placeholder="DID or handle"
+                        class="w-52 placeholder:text-xs"
+                      />
+                      <Tooltip text="Switch to session repos">
+                        <button
+                          type="button"
+                          onclick={() => setUseCustomRepo(false)}
+                          class="flex items-center rounded-sm p-1 hover:bg-neutral-200 active:bg-neutral-300 dark:hover:bg-neutral-700 dark:active:bg-neutral-600"
+                        >
+                          <span class="iconify lucide--list"></span>
+                        </button>
+                      </Tooltip>
+                    </>
+                  }
                 >
-                  <For each={Object.keys(sessions)}>
-                    {(session) => (
-                      <option value={session} selected={session === agent()?.sub}>
-                        {sessions[session].handle ?? session}
-                      </option>
-                    )}
-                  </For>
-                </select>
+                  <select
+                    class="dark:bg-dark-100 dark:shadow-dark-700 max-w-40 truncate rounded-lg border-[0.5px] border-neutral-300 bg-white px-1 py-1 shadow-xs select-none focus:outline-[1px] focus:outline-neutral-600 dark:border-neutral-600 dark:focus:outline-neutral-400"
+                    name="repo"
+                    id="repo"
+                  >
+                    <For each={Object.keys(sessions)}>
+                      {(session) => (
+                        <option value={session} selected={session === agent()?.sub}>
+                          {sessions[session].handle ?? session}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                  <Tooltip text="Use custom repo">
+                    <button
+                      type="button"
+                      onclick={() => setUseCustomRepo(true)}
+                      class="flex items-center rounded-sm p-1 hover:bg-neutral-200 active:bg-neutral-300 dark:hover:bg-neutral-700 dark:active:bg-neutral-600"
+                    >
+                      <span class="iconify lucide--pencil"></span>
+                    </button>
+                  </Tooltip>
+                </Show>
                 <span>/</span>
                 <TextInput
                   id="collection"

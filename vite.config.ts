@@ -17,6 +17,14 @@ const SERVER_PORT = parseInt(process.env.SERVER_PORT || "13213");
 const PUBLIC_HOSTNAME = process.env.PUBLIC_HOSTNAME;
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Allow importing from @atcute/oauth-browser-client/dist/dpop.js
+      "@atcute/oauth-browser-client/dist/dpop.js": fileURLToPath(
+        new URL("./node_modules/@atcute/oauth-browser-client/dist/dpop.js", import.meta.url),
+      ),
+    },
+  },
   plugins: [
     tailwindcss(),
     solidPlugin(),
