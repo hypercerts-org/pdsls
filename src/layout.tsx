@@ -80,7 +80,7 @@ const Layout = (props: RouteSectionProps<unknown>) => {
           class="flex items-center gap-1 text-xl font-semibold"
         >
           <span class="iconify tabler--binary-tree-filled text-[#76c4e5]"></span>
-          <span>PDSls</span>
+          <span>SDSls</span>
         </A>
         <div class="dark:bg-dark-300/60 relative flex items-center gap-1 rounded-lg bg-neutral-50/60">
           <Show when={location.pathname !== "/"}>

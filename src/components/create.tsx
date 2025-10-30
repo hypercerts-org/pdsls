@@ -33,12 +33,12 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
   const defaultPlaceholder = () => {
     return {
       $type: "app.bsky.feed.post",
-      text: "This post was sent from PDSls",
+      text: "This post was sent from SDSls",
       embed: {
         $type: "app.bsky.embed.external",
         external: {
-          uri: "https://pdsls.dev",
-          title: "PDSls",
+          uri: "https://sdsls.dev",
+          title: "SDSls",
           description: "Browse the public data on atproto",
         },
       },

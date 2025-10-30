@@ -1,6 +1,6 @@
 {
   "client_id": "PUBLIC_HOSTNAME_PLACEHOLDER/oauth-client-metadata.json",
-  "client_name": "PDSls",
+  "client_name": "SDSls",
   "client_uri": "PUBLIC_HOSTNAME_PLACEHOLDER",
   "logo_uri": "PUBLIC_HOSTNAME_PLACEHOLDER/favicon.png",
   "redirect_uris": ["PUBLIC_HOSTNAME_PLACEHOLDER/"],
