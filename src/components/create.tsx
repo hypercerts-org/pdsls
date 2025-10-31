@@ -88,9 +88,78 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
     }
   };
 
+  const computeAccessTokenHash = async (accessToken: string): Promise<string> => {
+    const encoder = new TextEncoder();
+    const tokenData = encoder.encode(accessToken);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", tokenData);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return btoa(String.fromCharCode(...hashArray))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=/g, "");
+  };
+
+  const generateDPoPProof = async (
+    session: any,
+    method: string,
+    fullUrl: string,
+    ath: string,
+  ): Promise<string> => {
+    const signDPoP = createDPoPSignage(session.dpopKey);
+    return await signDPoP(method, fullUrl, session.info.dpopNonce, ath);
+  };
+
+  const normalizeHeaders = (
+    initHeaders: HeadersInit | undefined,
+  ): Record<string, string> => {
+    const headers: Record<string, string> = {};
+    if (initHeaders) {
+      if (initHeaders instanceof Headers) {
+        initHeaders.forEach((value, key) => {
+          headers[key] = value;
+        });
+      } else {
+        Object.assign(headers, initHeaders);
+      }
+    }
+    return headers;
+  };
+
+  const createFetchInterceptor = (targetDomain: string) => {
+    const originalFetch = globalThis.fetch;
+    let fetchCallCount = 0;
+
+    const interceptedFetch = ((input: any, init: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url && url.includes(targetDomain)) {
+        fetchCallCount++;
+        const authHeader =
+          init?.headers?.Authorization ||
+          init?.headers?.authorization ||
+          init?.headers?.get?.("Authorization") ||
+          init?.headers?.get?.("authorization") ||
+          "NO_AUTH";
+        console.log(
+          `🌐 Native fetch call #${fetchCallCount} to ${targetDomain}, Auth:`,
+          authHeader.substring(0, 60),
+        );
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    return {
+      install: () => {
+        globalThis.fetch = interceptedFetch;
+      },
+      restore: () => {
+        globalThis.fetch = originalFetch;
+        console.log(`✨ Total fetch calls made: ${fetchCallCount}`);
+      },
+    };
+  };
+
   const createCrossPdsHandler = (targetPDS: string) => {
     const originalAgent = agent()!;
-    // Cache the session to avoid triggering refreshes
     let cachedSession: any = null;
 
     return {
@@ -103,7 +172,7 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
         } else {
           console.log("📥 Incoming init.headers:", init.headers);
         }
-        // Get the session to access tokens (cache it to avoid multiple refresh attempts)
+
         if (!cachedSession) {
           cachedSession = await (originalAgent as any).getSession();
         }
@@ -112,11 +181,9 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
           throw new Error("No session available in OAuth agent");
         }
 
-        // Generate DPoP proof for the target URL
         const fullUrl = `${targetPDS}${pathname}`;
         const method = (init.method || "GET").toUpperCase();
 
-        // Get the access token string from the session's token object
         const tokenObj = session.token;
         console.log("🔍 Token object:", tokenObj);
         const accessToken = tokenObj.access;
@@ -125,35 +192,14 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
         }
         console.log("🎫 Access token type:", typeof accessToken, "length:", accessToken.length);
 
-        // Compute the ath (hash of access token) for DPoP proof
-        const encoder = new TextEncoder();
-        const tokenData = encoder.encode(accessToken);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", tokenData);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const ath = btoa(String.fromCharCode(...hashArray))
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=/g, "");
+        const ath = await computeAccessTokenHash(accessToken);
+        const dpopProof = await generateDPoPProof(session, method, fullUrl, ath);
 
-        // Create DPoP proof using the library's signage function
-        const signDPoP = createDPoPSignage(session.dpopKey);
-        const dpopProof = await signDPoP(method, fullUrl, session.info.dpopNonce, ath);
-
-        // Make the request with proper auth headers
-        // Convert Headers object to plain object if necessary
-        const headers: Record<string, string> = {};
-        if (init.headers) {
-          if (init.headers instanceof Headers) {
-            init.headers.forEach((value, key) => {
-              headers[key] = value;
-            });
-          } else {
-            Object.assign(headers, init.headers);
-          }
-        }
+        const headers = normalizeHeaders(init.headers);
         headers.Authorization = `DPoP ${accessToken}`;
         headers.DPoP = dpopProof;
         headers["X-Custom-Test"] = "CrossPDSHandler-" + Date.now();
+
         console.log("🔐 Sending request to:", fullUrl);
         console.log(
           "🔑 Authorization header (first 60 chars):",
@@ -162,39 +208,18 @@ export const RecordEditor = (props: { create: boolean; record?: any; refetch?: a
         console.log("🆔 Test header:", headers["X-Custom-Test"]);
         console.log("📦 headers type:", headers.constructor.name, "keys:", Object.keys(headers));
 
-        // Intercept at the native fetch level to see ALL requests
-        const originalFetch = globalThis.fetch;
-        let fetchCallCount = 0;
-        globalThis.fetch = ((input: any, init: any) => {
-          const url = typeof input === "string" ? input : input.url;
-          if (url && url.includes("test.certified.app")) {
-            fetchCallCount++;
-            const authHeader =
-              init?.headers?.Authorization ||
-              init?.headers?.authorization ||
-              init?.headers?.get?.("Authorization") ||
-              init?.headers?.get?.("authorization") ||
-              "NO_AUTH";
-            console.log(
-              `🌐 Native fetch call #${fetchCallCount} to test.certified.app, Auth:`,
-              authHeader.substring(0, 60),
-            );
-          }
-          return originalFetch(input, init);
-        }) as typeof fetch;
+        const interceptor = createFetchInterceptor("test.certified.app");
+        interceptor.install();
 
-        // Create a completely fresh request without any init overrides
         const response = await fetch(fullUrl, {
           method,
           headers,
           body: init.body,
-          credentials: "omit", // Don't send cookies or auth credentials
+          credentials: "omit",
           cache: "no-cache",
         });
 
-        // Restore and report
-        globalThis.fetch = originalFetch;
-        console.log(`✨ Total fetch calls made: ${fetchCallCount}`);
+        interceptor.restore();
 
         console.log("✅ Got response:", response.status, response.statusText);
         return response;
