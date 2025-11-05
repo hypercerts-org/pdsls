@@ -7,6 +7,7 @@ export enum App {
   Frontpage,
   Pinksea,
   Linkat,
+  Certified,
 }
 
 export const appName = {
@@ -16,6 +17,7 @@ export const appName = {
   [App.Frontpage]: "Frontpage",
   [App.Pinksea]: "Pinksea",
   [App.Linkat]: "Linkat",
+  [App.Certified]: "Certified",
 };
 
 export const appList: Record<AppUrl, App> = {
@@ -33,6 +35,14 @@ export const appList: Record<AppUrl, App> = {
   "frontpage.fyi": App.Frontpage,
   "pinksea.art": App.Pinksea,
   "linkat.blue": App.Linkat,
+  "certified.app": App.Certified,
+};
+
+// Full passthrough that preserves the entire path structure
+const passthroughHandle = (path: string[]) => {
+  if (path.length === 0) return "";
+  // Reconstruct the full path as an AT protocol URI
+  return `at://${path.join("/")}`;
 };
 
 export const appHandleLink: Record<App, (url: string[]) => string> = {
@@ -116,4 +126,5 @@ export const appHandleLink: Record<App, (url: string[]) => string> = {
     return `at://${path[0]}`;
   },
   [App.Linkat]: (path) => `at://${path[0]}/blue.linkat.board/self`,
+  [App.Certified]: passthroughHandle,
 };
