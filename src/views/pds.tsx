@@ -3,13 +3,14 @@ import { Client, CredentialManager } from "@atcute/client";
 import { InferXRPCBodyOutput } from "@atcute/lexicons";
 import * as TID from "@atcute/tid";
 import { A, useLocation, useParams } from "@solidjs/router";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, ErrorBoundary, For, Show, Suspense } from "solid-js";
 import { Button } from "../components/button";
 import { CopyMenu, DropdownMenu, MenuProvider, NavMenu } from "../components/dropdown";
 import { Modal } from "../components/modal";
 import { setPDS } from "../components/navbar";
 import Tooltip from "../components/tooltip";
 import { localDateFromTimestamp } from "../utils/date";
+import { XrpcExplorer } from "./xrpc-explorer.jsx";
 
 const LIMIT = 1000;
 
@@ -109,7 +110,7 @@ const PdsView = () => {
     );
   };
 
-  const Tab = (props: { tab: "repos" | "info"; label: string }) => (
+  const Tab = (props: { tab: "repos" | "info" | "xrpc"; label: string }) => (
     <div class="flex items-center gap-0.5">
       <A
         classList={{
@@ -131,6 +132,7 @@ const PdsView = () => {
         <div class="dark:shadow-dark-700 dark:bg-dark-300 mb-2 flex w-full justify-between rounded-lg border-[0.5px] border-neutral-300 bg-neutral-50 px-2 py-1.5 text-sm shadow-xs dark:border-neutral-700">
           <div class="flex gap-3">
             <Tab tab="repos" label="Repositories" />
+            <Tab tab="xrpc" label="XRPC" />
             <Tab tab="info" label="Info" />
           </div>
           <MenuProvider>
@@ -221,6 +223,19 @@ const PdsView = () => {
                 </>
               )}
             </Show>
+          </Show>
+          <Show when={location.hash === "#xrpc"}>
+            <ErrorBoundary
+              fallback={(err) => <div class="wrap-break-word">Error: {err.message}</div>}
+            >
+              <Suspense
+                fallback={
+                  <div class="iconify lucide--loader-circle mt-2 animate-spin self-center text-xl" />
+                }
+              >
+                <XrpcExplorer pdsUrl={pds} />
+              </Suspense>
+            </ErrorBoundary>
           </Show>
         </div>
       </div>

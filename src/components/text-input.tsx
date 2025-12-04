@@ -9,7 +9,11 @@ export interface TextInputProps {
   placeholder?: string;
   spellcheck?: boolean;
   value?: string | string[];
+  autocomplete?: string;
   onInput?: (ev: InputEvent & { currentTarget: HTMLInputElement }) => void;
+  onKeyDown?: (ev: KeyboardEvent & { currentTarget: HTMLInputElement }) => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 export const TextInput = (props: TextInputProps) => {
@@ -24,11 +28,15 @@ export const TextInput = (props: TextInputProps) => {
       placeholder={props.placeholder}
       disabled={props.disabled}
       required={props.required}
+      autocomplete={props.autocomplete}
       class={
         "dark:bg-dark-100 dark:shadow-dark-700 rounded-lg border-[0.5px] border-neutral-300 bg-white px-2 py-1 shadow-xs select-none placeholder:text-sm focus:outline-[1px] focus:outline-neutral-600 dark:border-neutral-600 dark:focus:outline-neutral-400 " +
         props.class
       }
       onInput={props.onInput}
+      onKeyDown={props.onKeyDown}
+      onFocus={props.onFocus}
+      onBlur={props.onBlur}
     />
   );
 };
