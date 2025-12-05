@@ -55,14 +55,22 @@ export const Home = () => {
         </a>
       </div>
       <div class="text-center text-sm italic">
-        Made by{" "}
+        PDSls made by{" "}
         <a
           href="https://juli.ee"
           class="font-pecita relative after:absolute after:bottom-0 after:left-0 after:h-px after:w-0 after:bg-current after:transition-[width] after:duration-300 after:ease-out hover:after:w-full"
         >
           Juliet
         </a>{" "}
-        with love
+        with love;{" "}
+        <a href="https://github.com/hypercerts-org/pdsls" class="underline">
+          SDSls friendly fork
+        </a>{" "}
+        made by{" "}
+        <a href="https://hypercerts.org" class="underline">
+          Hypercerts
+        </a>{" "}
+        team with gratitude
       </div>
     </div>
   );
