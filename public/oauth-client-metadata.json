@@ -4,7 +4,7 @@
   "client_uri": "PUBLIC_HOSTNAME_PLACEHOLDER",
   "logo_uri": "PUBLIC_HOSTNAME_PLACEHOLDER/favicon.png",
   "redirect_uris": ["PUBLIC_HOSTNAME_PLACEHOLDER/"],
-  "scope": "atproto transition:generic",
+  "scope": "atproto repo:app.bsky.actor.profile?action=create repo:app.bsky.actor.profile?action=update com.atproto.repo.createRecord com.atproto.repo.putRecord com.atproto.repo.deleteRecord com.atproto.repo.uploadBlob blob:image/jpeg blob:image/png blob:image/webp transition:email account:email?action=manage rpc:app.bsky.actor.getProfile?aud=did:web:api.bsky.app#bsky_appview",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
