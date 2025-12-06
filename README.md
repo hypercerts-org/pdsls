@@ -1,3 +1,17 @@
+# SDSls - AT Protocol Explorer
+
+SDSls is a friendly fork of https://pdsls.dev, with experimental support
+for:
+
+- writes to SDS (Shared Data Server) repositories
+- a playground for exploring and invoking XRPC API calls
+
+It is currently an early stage project.  If possible we would like to
+contribute changes back to the upstream project where it makes sense,
+and not have the codebase diverge too far from upstream.
+
+The original PDSls README remains below.
+
 # PDSls - AT Protocol Explorer
 
 Lightweight and client-side web app to navigate [atproto](https://atproto.com/).
